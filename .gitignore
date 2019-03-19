@@ -1,0 +1,12 @@
+.DS_Store
+.project
+.svn/
+
+test/
+dist/
+node_modules/
+logs/
+
+*.zip
+*.tar.gz
+*.rar
