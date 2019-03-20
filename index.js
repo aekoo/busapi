@@ -14,6 +14,8 @@ app.use((req, res, next) => {
   }
 })
 
+app.use('/bus', express.static('bushere'))
+
 //获取线路
 app.get('/api/getline', (req, res) => {
   var path = req.originalUrl;
@@ -63,4 +65,4 @@ app.get('/api/carmonitor', (req, res) => {
     });
 });
 
-app.listen(8082, () => console.log('开始监听8082端口!'));
+app.listen(80, () => console.log('开始监听80端口!'));
