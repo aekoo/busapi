@@ -41,7 +41,7 @@ app.get('/api/getline', (req, res) => {
     , b = b + (1 == e.length ? "0" + e : e)
     , a = "TYMON_" + b;
   http.get({
-    hostname: '182.254.143.172',
+    hostname: 'www.trafficeye.com.cn',
     path: '/fkgis-gateway/' + a + '/gis/keyquery.json?' + param
   }, function (data) {
     var body = [];
