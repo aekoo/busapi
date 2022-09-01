@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs')
 const http = require('http');
 const https = require('https');
+const querystring = require("querystring");
 const app = express();
 
 var privateKey = fs.readFileSync('./certificate/private.key', 'utf8');
@@ -9,6 +10,68 @@ var certificate = fs.readFileSync('./certificate/certificate.pem', 'utf8');
 const credentials = {
   key: privateKey,
   cert: certificate,
+}
+
+const getLineBase = (lineName) => {
+  var regExp = /^\d+(\.\d+)?$/;
+  if (regExp.test(lineName)) {
+    lineName = lineName + '路';
+  }
+  lineName = encodeURI(lineName)
+
+  return new Promise((resolve, reject) => {
+    http.get({
+      hostname: 'apps.eshimin.com',
+      path: '/traffic/gjc/getBusBase?name=' + lineName
+    }, function (data) {
+      var body = [];
+      data.on('data', function (chunk) {
+        body.push(chunk);
+      });
+      data.on('end', function (e) {
+        body = Buffer.concat(body);
+        resolve(body)
+      });
+    });
+  });
+}
+
+const getBusStop = (line_id, lineName) => {
+  lineName = encodeURI(lineName)
+  return new Promise((resolve, reject) => {
+    http.get({
+      hostname: 'apps.eshimin.com',
+      path: `/traffic/gjc/getBusStop?name=${lineName}&lineid=${line_id}`
+    }, function (data) {
+      var body = [];
+      data.on('data', function (chunk) {
+        body.push(chunk);
+      });
+      data.on('end', function (e) {
+        body = Buffer.concat(body);
+        resolve(body)
+      });
+    });
+  });
+}
+
+const getArriveBase = (line_id, lineName, direction, stopid) => {
+  lineName = encodeURI(lineName)
+  return new Promise((resolve, reject) => {
+    http.get({
+      hostname: 'apps.eshimin.com',
+      path: `/traffic/gjc/getArriveBase?name=${lineName}&lineid=${line_id}&stopid=${stopid}&direction=${direction}`
+    }, function (data) {
+      var body = [];
+      data.on('data', function (chunk) {
+        body.push(chunk);
+      });
+      data.on('end', function (e) {
+        body = Buffer.concat(body);
+        resolve(body.toString())
+      });
+    });
+  });
 }
 
 app.use((req, res, next) => {
@@ -55,23 +118,98 @@ app.get('/api/getline', (req, res) => {
   });
 });
 
+//获取线路
+// app.get('/api/getline', (req, res) => {
+//   var path = req.originalUrl;
+//   let { lineName } = req.query;
+//   console.log(req.query);
+//   let regExp = /^\d+(\.\d+)?$/;
+//   if (regExp.test(lineName)) {
+//     lineName = lineName + '路';
+//   }
+//   http.get({
+//     hostname: 'apps.eshimin.com',
+//     path: '/traffic/gjc/getBusBase?name=' + encodeURI(lineName)
+//   }, function (data) {
+//     var body = [];
+//     data.on('data', function (chunk) {
+//       console.log('chunk', chunk);
+//       body.push(chunk);
+//     });
+//     data.on('end', function () {
+//       body = Buffer.concat(body);
+//       console.log('body', body.toString());
+//       res.send(body.toString())
+//     });
+//   });
+// });
+
 //获取站点信息
-app.get('/api/carmonitor', (req, res) => {
+// app.get('/api/carmonitor', (req, res) => {
+//   var path = req.originalUrl;
+//   let param = req.url.split('?')[1] || '';
+//   http.get({
+//     hostname: 'www.jtcx.sh.cn',
+//     path: '/dynamictraffic_interface/web/trafficline/carmonitor?' + param
+//   }, function (data) {
+//     var body = [];
+//     data.on('data', function (chunk) {
+//       body.push(chunk);
+//     });
+//     data.on('end', function () {
+//       body = Buffer.concat(body);
+//       res.send(body.toString())
+//     });
+//   });
+// });
+
+
+//获取站点信息
+app.get('/api/carmonitor', async (req, res) => {
   var path = req.originalUrl;
-  let param = req.url.split('?')[1] || '';
-  http.get({
-    hostname: 'www.jtcx.sh.cn',
-    path: '/dynamictraffic_interface/web/trafficline/carmonitor?' + param
-  }, function (data) {
-    var body = [];
-    data.on('data', function (chunk) {
-      body.push(chunk);
+  let param = querystring.parse(req.url.split('?')[1] || '');
+
+  let lineName = param.busname;
+  try {
+
+    const resLinebase = await getLineBase(lineName);
+    const { line_id, line_name, start_stop, start_earlytime, start_latetime, end_stop, end_earlytime, end_latetime } = JSON.parse(resLinebase);
+    // console.log(line_id);
+    const lineResponse = await getBusStop(line_id, lineName);
+    // console.log(JSON.parse(lineResponse));
+    const direction = param.startstop == start_stop ? 0 : 1;
+    const stops = JSON.parse(lineResponse)[`lineResults${direction}`].stops || [];
+
+    let stopids = stops.filter((val) => {
+      if (val.zdmc == param.stopname) {
+        return val.id;
+      } else {
+        return 0;
+      }
     });
-    data.on('end', function () {
-      body = Buffer.concat(body);
-      res.send(body.toString())
-    });
-  });
+    
+    if (stopids.length) {
+      let stopid = stopids[0].id
+
+      const getResponse = await getArriveBase(line_id, lineName, direction, stopid);
+      // console.log(JSON.parse(getResponse));
+      let B = getResponse.replace('cars', 'realtime')
+      B = B.replace('[', '')
+      B = B.replace(']', '')
+      if (B == "{ }") {
+        B = { "result": {} };
+      } else {
+        B = { "result": JSON.parse(B) }
+        console.log(B);
+      }
+      res.send(B);
+    } else {
+      res.send({ "result": {} });
+    }
+
+  } catch (error) {
+    console.log(error);
+  }
 });
 
 // 创建https服务器实例
