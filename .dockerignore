@@ -1,0 +1,11 @@
+Dockerfile
+
+.git
+.gitignore
+.config
+
+.npm
+.vscode
+node_modules
+package-lock.json
+README.md

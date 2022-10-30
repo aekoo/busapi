@@ -2,10 +2,8 @@ const express = require('express');
 const fs = require('fs')
 const http = require('http');
 const https = require('https');
-const axios = require('axios');
 const querystring = require("querystring");
 const app = express();
-const port = process.env.NODE_PORT || 8801;
 
 var privateKey = fs.readFileSync('./certificate/private.key', 'utf8');
 var certificate = fs.readFileSync('./certificate/certificate.pem', 'utf8');
@@ -29,93 +27,66 @@ app.use((req, res, next) => {
 
 app.use('/bus', express.static('bushere'))
 
-const reqBody = {
-  "userSystemData": {
-    "system": "iOS 15.5",
-    "platform": "ios",
-    "model": "iPhone 12 Pro<iPhone13,3>",
-    "brand": "iPhone",
-    "version": "8.0.29",
-    "SDKVersion": "2.27.0",
-    "windowWidth": 390
-  },
-  "sessionId": "9388a318801c40f78278bff6e44fb764",
-};
-const reqHeader = {
-  "x-tif-did": "1nwLbL8esT",
-  "x-tif-sid": "856179f6eb44e042a6ab",
-  "Content-Type": "application/json",
-  "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.29(0x18001d32) NetType/WIFI Language/zh_CN"
-};
 
-const disposeLineName = lineName => {
+
+const getLineBase = (lineName) => {
   var regExp = /^\d+(\.\d+)?$/;
   if (regExp.test(lineName)) {
     lineName = lineName + '路';
   }
-  return encodeURI(lineName);
-}
-
-const getLineBase = (lineName) => {
-  lineName = disposeLineName(lineName);
+  lineName = encodeURI(lineName)
 
   return new Promise((resolve, reject) => {
-    axios.post('https://smartgate.ywtbsupappw.sh.gov.cn/ebus/jtw/trafficline/base', JSON.parse(JSON.stringify({
-      ...reqBody,
-      "name": lineName,
-      "params": {
-        "name": lineName,
-      }
-    })), {
-      headers: reqHeader
-    }).then(({ data }) => {
-      // console.log(data.data);
-      resolve(data.data)
+    http.get({
+      hostname: 'apps.eshimin.com',
+      path: '/traffic/gjc/getBusBase?name=' + lineName
+    }, function (data) {
+      var body = [];
+      data.on('data', function (chunk) {
+        body.push(chunk);
+      });
+      data.on('end', function (e) {
+        body = Buffer.concat(body);
+        resolve(body)
+      });
     });
-
   });
 }
 
 const getBusStop = (line_id, lineName) => {
-  lineName = disposeLineName(lineName);
-
+  lineName = encodeURI(lineName)
   return new Promise((resolve, reject) => {
-    axios.post('https://smartgate.ywtbsupappw.sh.gov.cn/ebus/jtw/trafficline/stoplist', JSON.parse(JSON.stringify({
-      ...reqBody,
-      "lineid": line_id,
-      "name": lineName,
-      "params": {
-        "lineid": line_id,
-        "name": lineName,
-      }
-    })), {
-      headers: reqHeader
-    }).then(({ data }) => {
-      resolve(data.data)
+    http.get({
+      hostname: 'apps.eshimin.com',
+      path: `/traffic/gjc/getBusStop?name=${lineName}&lineid=${line_id}`
+    }, function (data) {
+      var body = [];
+      data.on('data', function (chunk) {
+        body.push(chunk);
+      });
+      data.on('end', function (e) {
+        body = Buffer.concat(body);
+        resolve(body)
+      });
     });
   });
 }
 
 const getArriveBase = (line_id, lineName, direction, stopid) => {
-  lineName = disposeLineName(lineName);
-
+  lineName = encodeURI(lineName)
   return new Promise((resolve, reject) => {
-    axios.post('https://smartgate.ywtbsupappw.sh.gov.cn/ebus/jtw/trafficline/carmonitor', JSON.parse(JSON.stringify({
-      ...reqBody,
-      "lineid": line_id,
-      "name": lineName,
-      stopid,
-      direction,
-      "params": {
-        "lineid": line_id,
-        "name": lineName,
-        stopid,
-        direction,
-      }
-    })), {
-      headers: reqHeader
-    }).then(({ data }) => {
-      resolve(data.data)
+    http.get({
+      hostname: 'apps.eshimin.com',
+      path: `/traffic/gjc/getArriveBase?name=${lineName}&lineid=${line_id}&stopid=${stopid}&direction=${direction}`
+    }, function (data) {
+      var body = [];
+      data.on('data', function (chunk) {
+        body.push(chunk);
+      });
+      data.on('end', function (e) {
+        body = Buffer.concat(body);
+        resolve(body.toString())
+      });
     });
   });
 }
@@ -127,11 +98,13 @@ app.get('/api/getline', async (req, res) => {
   let { cityCode, lineName } = param;
 
   try {
-    const { line_id, line_name, start_stop, start_earlytime, start_latetime, end_stop, end_earlytime, end_latetime } = await getLineBase(lineName);
+    const resLinebase = await getLineBase(lineName);
+    const { line_id, line_name, start_stop, start_earlytime, start_latetime, end_stop, end_earlytime, end_latetime } = JSON.parse(resLinebase);
     if (!line_id) return res.send({ code: -1, datas: {}, message: '没有查询到该公交线路' });
     const lineResponse = await getBusStop(line_id, lineName);
-    const stops0 = lineResponse[`lineResults0`].stop || [];
-    const stops1 = lineResponse[`lineResults1`].stop || [];
+    // console.log(JSON.parse(lineResponse));
+    const stops0 = JSON.parse(lineResponse)[`lineResults0`].stops || [];
+    const stops1 = JSON.parse(lineResponse)[`lineResults1`].stops || [];
 
     let result_data = {
       line_id,// 线路id
@@ -160,7 +133,16 @@ app.get('/api/carmonitor', async (req, res) => {
 
   try {
     const getResponse = await getArriveBase(lineId, lineName, direction, stopid);
-    let B = { realtime: typeof getResponse == 'object' ? getResponse.cars.car : null };
+    // console.log(JSON.parse(getResponse));
+    let B = getResponse.replace('cars', 'realtime')
+    B = B.replace('[', '')
+    B = B.replace(']', '')
+    if (B == "{ }") {
+      B = {};
+    } else {
+      B = { ...JSON.parse(B) }
+      // console.log(B);
+    }
     res.send({ code: 1, datas: B, message: '成功' });
 
   } catch (error) {
@@ -172,5 +154,5 @@ app.get('/api/carmonitor', async (req, res) => {
 // 创建https服务器实例
 const httpsServer = https.createServer(credentials, app)
 // 启动服务器，监听对应的端口
-app.listen(port, () => console.log('\033[42;30m DONE \033[40;32m Access to the address:\033[40;36m', `http://localhost:${port}`, '\033[0m'));
-// httpsServer.listen(443, () => { console.log(`开始监听443端口!`) })
+app.listen(80, () => console.log('开始监听80端口!'));
+httpsServer.listen(443, () => { console.log(`开始监听443端口!`) })
